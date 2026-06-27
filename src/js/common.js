@@ -9,6 +9,112 @@ const FAVORITES_KEY = STORAGE_KEYS.FAVORITES;
 const THEME_KEY = STORAGE_KEYS.THEME;
 const TOKEN_KEY = STORAGE_KEYS.TOKEN;
 
+// ============================================
+// Safe localStorage wrapper (VC-PLATFORM-04)
+// ============================================
+// Catches QuotaExceededError (Private Mode / full quota), shows a toast,
+// prunes the oldest timestamped entries to make room, and never throws to
+// the caller. Every localStorage write in this module goes through this.
+
+const TIMESTAMP_FIELDS = ['timestamp', 'updatedAt', 'lastVisit', 'createdAt', 'addedAt'];
+
+const isQuotaError = (err) => {
+  if (!err) return false;
+  const name = err.name || '';
+  const code = err.code;
+  return (
+    name === 'QuotaExceededError' ||
+    name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    // Legacy / Edge codes
+    code === 22 ||
+    code === 1014
+  );
+};
+
+// Read the best-known age timestamp from a localStorage entry's JSON payload.
+// Returns null for entries we can't pin a timestamp on (e.g. theme, token).
+const readEntryTimestamp = (raw) => {
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      for (const f of TIMESTAMP_FIELDS) {
+        if (typeof parsed[f] === 'number') return parsed[f];
+      }
+    }
+  } catch {
+    // non-JSON value (theme, token, raw string)
+  }
+  return null;
+};
+
+// Remove the single oldest timestamped entry (excluding `excludeKey`).
+// Entries without a timestamp are kept as a last resort (they tend to be
+// essential config like theme/token). Returns true if something was removed.
+const pruneOneOldestEntry = (excludeKey) => {
+  const candidates = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || key === excludeKey) continue;
+    const ts = readEntryTimestamp(localStorage.getItem(key));
+    if (ts == null) continue; // skip essential config first
+    candidates.push({ key, ts });
+  }
+  // If nothing timestamped remains, fall back to any other entry.
+  if (candidates.length === 0) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || key === excludeKey) continue;
+      candidates.push({ key, ts: Number.POSITIVE_INFINITY });
+    }
+  }
+  if (candidates.length === 0) return false;
+  candidates.sort((a, b) => a.ts - b.ts);
+  try {
+    localStorage.removeItem(candidates[0].key);
+  } catch {
+    return false;
+  }
+  return true;
+};
+
+/**
+ * Safe wrapper around localStorage.setItem.
+ * On QuotaExceededError: shows a toast, prunes oldest entries, retries,
+ * and NEVER throws to the caller. Returns true on successful write.
+ * @param {string} key
+ * @param {string} value
+ * @param {{ silent?: boolean }} [options]
+ * @returns {boolean} true if the write eventually succeeded
+ */
+export const safeSetItem = (key, value, options = {}) => {
+  const { silent = false } = options;
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    if (!isQuotaError(err)) {
+      // Defensive: don't surface unrelated storage errors to the caller either.
+      return false;
+    }
+    if (!silent) {
+      showToast('Storage full — removed older data to make room', 'warning');
+    }
+    // Prune + retry until success or no more candidates.
+    const maxAttempts = Math.max(1, localStorage.length);
+    for (let attempts = 0; attempts < maxAttempts; attempts++) {
+      if (!pruneOneOldestEntry(key)) break;
+      try {
+        localStorage.setItem(key, value);
+        return true;
+      } catch {
+        // still full, keep pruning
+      }
+    }
+    return false;
+  }
+};
+
 export const Storage = {
   getFavorites() {
     try {
@@ -22,7 +128,7 @@ export const Storage = {
   },
 
   saveFavorites(favorites) {
-    localStorage.setItem(FAVORITES_KEY, JSON.stringify({
+    safeSetItem(FAVORITES_KEY, JSON.stringify({
       version: STORAGE_VERSION,
       data: favorites,
       timestamp: Date.now()
@@ -63,7 +169,7 @@ export const Storage = {
   },
 
   setTheme(theme) {
-    localStorage.setItem(THEME_KEY, theme);
+    safeSetItem(THEME_KEY, theme);
     document.documentElement.setAttribute('data-theme', theme);
   },
 
@@ -73,7 +179,7 @@ export const Storage = {
 
   setToken(token) {
     if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
+      safeSetItem(TOKEN_KEY, token);
     } else {
       localStorage.removeItem(TOKEN_KEY);
     }
@@ -104,13 +210,13 @@ export const Storage = {
     } else {
       delete notes[repoFullName];
     }
-    localStorage.setItem('gh-explorer-notes', JSON.stringify(notes));
+    safeSetItem('gh-explorer-notes', JSON.stringify(notes));
   },
 
   deleteNote(repoFullName) {
     const notes = this.getNotes();
     delete notes[repoFullName];
-    localStorage.setItem('gh-explorer-notes', JSON.stringify(notes));
+    safeSetItem('gh-explorer-notes', JSON.stringify(notes));
   },
 
   getDiscoveryStats() {
@@ -146,7 +252,7 @@ export const Storage = {
       stats.lastVisit = today;
     }
     
-    localStorage.setItem('gh-explorer-stats', JSON.stringify(stats));
+    safeSetItem('gh-explorer-stats', JSON.stringify(stats));
     return stats;
   },
 
@@ -161,7 +267,7 @@ export const Storage = {
   },
 
   saveCollections(collections) {
-    localStorage.setItem('gh-explorer-collections', JSON.stringify(collections));
+    safeSetItem('gh-explorer-collections', JSON.stringify(collections));
   },
 
   createCollection(name, description = '') {
@@ -414,6 +520,24 @@ export const escapeHtml = (str) => {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+};
+
+/**
+ * Escape a string for safe insertion into an HTML attribute value.
+ * Escapes BOTH single AND double quotes (so it is safe in either `'...'`
+ * or `"..."` attribute quoting), plus ampersand and angle brackets.
+ * Use this for any value placed into `data-*`, `title`, `value`, etc.
+ * @param {string} str - String to escape
+ * @returns {string}
+ */
+export const escapeAttr = (str) => {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 };
 
 /**
