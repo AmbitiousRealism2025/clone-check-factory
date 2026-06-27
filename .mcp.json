@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "clone-check": {
+      "command": "node",
+      "args": ["mcp/server.js"],
+      "env": {}
+    }
+  }
+}

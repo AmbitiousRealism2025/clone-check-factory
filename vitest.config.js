@@ -24,7 +24,10 @@ export default defineConfig({
         lines: 80
       }
     },
-    include: ['src/**/*.test.js'],
+    include: ['src/**/*.test.js', 'mcp/**/*.test.js'],
+    // The MCP stdio tests spawn child processes; give them a generous timeout.
+    testTimeout: 30000,
+    hookTimeout: 30000,
     setupFiles: ['./src/js/__tests__/setup.js']
   }
 });
