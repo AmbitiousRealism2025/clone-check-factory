@@ -26,5 +26,8 @@ dist/
 *.log
 npm-debug.log*
 
+# QA harness output (.qa/logs/ holds redacted run logs — never commit)
+.qa/
+
 # Claude settings (personal config)
 .claude_settings.json

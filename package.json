@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "qa:start": "node qa/scripts/qa-start.mjs",
+    "qa:harness": "node qa/scripts/qa-harness.mjs"
   },
   "keywords": [
     "github",
