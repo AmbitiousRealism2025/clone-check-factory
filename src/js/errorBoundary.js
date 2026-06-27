@@ -4,7 +4,9 @@ const ERROR_MESSAGES = {
   network: 'Network error. Please check your connection.',
   rateLimit: 'API rate limit reached. Please wait a moment.',
   notFound: 'Resource not found.',
-  forbidden: 'Access denied. Check your token.',
+  // VC-PLATFORM-03: never the misleading "Check your token" copy for what is
+  // actually a rate-limit or a private-repo permission failure.
+  forbidden: 'Access denied — this repository may be private or require a token with appropriate scope.',
   default: 'Something went wrong. Please try again.'
 };
 
@@ -19,11 +21,29 @@ const classifyError = (error) => {
   return 'default';
 };
 
+/**
+ * Resolves the user-facing message for an error.
+ *
+ * For rate-limit errors thrown by `fetchWithRetry`, the underlying message
+ * already carries the honest "try again in N seconds" countdown derived from
+ * `Retry-After` / `x-ratelimit-reset`. We surface THAT verbatim rather than
+ * the generic fallback so the UI never strips the countdown (VC-PLATFORM-03).
+ *
+ * @param {Error} error
+ * @returns {string}
+ */
+const resolveUserMessage = (error) => {
+  const errorType = classifyError(error);
+  if (errorType === 'rateLimit' && error?.message && /try again in \d+ seconds/i.test(error.message)) {
+    return error.message;
+  }
+  return ERROR_MESSAGES[errorType];
+};
+
 const handleError = (error, context = 'Unknown') => {
   console.error(`[ErrorBoundary] ${context}:`, error);
   
-  const errorType = classifyError(error);
-  const userMessage = ERROR_MESSAGES[errorType];
+  const userMessage = resolveUserMessage(error);
   
   showToast(userMessage, 'error');
 };

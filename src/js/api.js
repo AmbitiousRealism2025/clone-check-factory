@@ -2,6 +2,110 @@ import { API_BASE, API_VERSION, CACHE_TTL_MS, CACHE_MAX_ENTRIES, STATS_CACHE_TTL
 
 const RETRY_CONFIG = { MAX_RETRIES: 3, INITIAL_BACKOFF_MS: 1000, BACKOFF_MULTIPLIER: 2 };
 
+/* -------------------------------------------------------------------------
+ * Clone Check — Quota-aware request manager (F2.3 / VC-PLATFORM-03).
+ *
+ * Two pieces:
+ *   1. An in-flight registry keyed by an arbitrary string. Starting a new
+ *      managed request with the same key ABORTS the prior in-flight request
+ *      via its AbortController, so superseded fetches are cancelled rather
+ *      than racing the newer one (e.g. user typing fast in the URL input).
+ *   2. Honest 429 / Retry-After handling inside `fetchWithRetry`: GitHub's
+ *      secondary rate limits come back as 429 (or 403) with a `Retry-After`
+ *      header. We surface "Rate limited — try again in N seconds" instead of
+ *      the misleading "Forbidden: Check your access token".
+ * ------------------------------------------------------------------------- */
+
+/** @type {Map<string, AbortController>} In-flight managed requests keyed by request key. */
+const inflightRequests = new Map();
+
+/**
+ * Allocates a fresh `AbortController` for `key`, aborting any prior
+ * in-flight request that shares the same key. Returns the new controller's
+ * `signal` so the caller can pass it to `fetch` (or to `fetchWithRetry`).
+ *
+ * Use this for any user-initiated request where a newer request supersedes
+ * an older one (e.g. the URL input on the verdict page, search-as-you-type).
+ * For fire-and-forget calls that should NOT cancel each other, call `fetch`
+ * directly with no signal.
+ *
+ * @param {string} key  Arbitrary identifier for the request slot.
+ * @returns {AbortSignal} Signal for the new request. Aborted if a newer
+ *   request with the same key starts before this one settles.
+ */
+export const createManagedRequest = (key) => {
+  const existing = inflightRequests.get(key);
+  if (existing) {
+    existing.abort();
+  }
+  const controller = new AbortController();
+  inflightRequests.set(key, controller);
+  return controller.signal;
+};
+
+/**
+ * Clears the in-flight slot for `key` if the active controller still owns it.
+ * Safe to call after any settle (success or error); idempotent.
+ *
+ * @param {string} key
+ * @param {AbortSignal} [signal]  Only clears if this signal is the active one.
+ */
+export const clearManagedRequest = (key, signal) => {
+  const current = inflightRequests.get(key);
+  if (!current) return;
+  if (signal && current.signal !== signal) return;
+  inflightRequests.delete(key);
+};
+
+/**
+ * Runs `producer(signal)` with managed abort semantics: any prior in-flight
+ * request sharing `key` is aborted, and the active slot is cleaned up when
+ * the producer settles. If a newer managed request supersedes this one
+ * mid-flight, `signal.aborted` becomes true and the producer's fetch rejects
+ * with an `AbortError` (which `fetchWithRetry` rethrows without retrying).
+ *
+ * @template T
+ * @param {string} key
+ * @param {(signal: AbortSignal) => Promise<T>} producer
+ * @returns {Promise<T>}
+ */
+export const withManagedRequest = async (key, producer) => {
+  const signal = createManagedRequest(key);
+  try {
+    return await producer(signal);
+  } finally {
+    clearManagedRequest(key, signal);
+  }
+};
+
+/**
+ * Parses an HTTP `Retry-After` header value into a whole number of seconds.
+ *
+ * The header is defined as EITHER a non-negative integer (seconds) OR an
+ * HTTP-date in RFC 1123 format. Returns `null` for missing / unparseable
+ * values so callers can fall back to other signals (x-ratelimit-reset, a
+ * default).
+ *
+ * @param {string|null|undefined} value
+ * @returns {number|null} Whole seconds (≥1), or null.
+ */
+export const parseRetryAfter = (value) => {
+  if (value == null || value === '') return null;
+  const trimmed = String(value).trim();
+  // Integer-seconds form.
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = parseInt(trimmed, 10);
+    return Number.isFinite(seconds) ? Math.max(1, seconds) : null;
+  }
+  // HTTP-date form.
+  const date = new Date(trimmed);
+  if (!Number.isNaN(date.getTime())) {
+    const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+    return seconds > 0 ? seconds : 1;
+  }
+  return null;
+};
+
 /**
  * Candidate AI-rules files / dirs we probe for AI-readiness (VC-CONTENTS-01).
  * Order matters only for display; missing entries are reported honestly.
@@ -71,15 +175,19 @@ export const clearCache = () => {
  * @param {boolean} [options.acceptStatsProcessing=false]       When true, a 202 returns
  *   `{ data: null, processing: true, rateLimit }` instead of being treated as success
  *   or thrown. Processing responses are NEVER cached (so retries genuinely re-fetch).
+ * @param {AbortSignal} [options.signal]                        Optional AbortSignal
+ *   forwarded to `fetch`. AbortErrors are rethrown WITHOUT retry (the request
+ *   was intentionally cancelled — usually by `withManagedRequest`).
  * @returns {Promise<{data:*, rateLimit:Object, processing?: boolean}>}
  */
-const fetchWithRetry = async (url, options = {}) => {
+export const fetchWithRetry = async (url, options = {}) => {
   const {
     retries = RETRY_CONFIG.MAX_RETRIES,
     backoff = RETRY_CONFIG.INITIAL_BACKOFF_MS,
     useCache = true,
     cacheTtlMs = CACHE_TTL_MS,
-    acceptStatsProcessing = false
+    acceptStatsProcessing = false,
+    signal
   } = options;
 
   if (useCache) {
@@ -88,7 +196,7 @@ const fetchWithRetry = async (url, options = {}) => {
   }
 
   try {
-    const response = await fetch(url, { headers: getHeaders() });
+    const response = await fetch(url, { headers: getHeaders(), signal });
 
     // 202 Accepted — GitHub stats are still being computed. Surface an honest
     // "computing" state and DO NOT cache (so the caller's retry re-fetches).
@@ -104,16 +212,38 @@ const fetchWithRetry = async (url, options = {}) => {
       };
     }
 
-    if (response.status === 403) {
+    // VC-PLATFORM-03 — Honest rate-limit handling.
+    // GitHub emits primary rate limits as 403 with x-ratelimit-remaining=0,
+    // and secondary (abuse) rate limits as 429 (or 403) with a Retry-After
+    // header. ALL of these surface as an honest "Rate limited — try again in
+    // N seconds" message. We NEVER blame rate limits on the token with copy
+    // like "Forbidden: Check your access token".
+    if (response.status === 429 || response.status === 403) {
+      const retryAfterSec = parseRetryAfter(response.headers.get('retry-after'));
       const remaining = response.headers.get('x-ratelimit-remaining');
       const resetTime = response.headers.get('x-ratelimit-reset');
 
-      if (remaining === '0') {
-        const resetDate = new Date(parseInt(resetTime) * 1000);
-        throw new Error(`Rate limit exceeded. Resets at ${resetDate.toLocaleTimeString()}`);
+      const isRateLimited =
+        response.status === 429 ||
+        remaining === '0' ||
+        retryAfterSec !== null;
+
+      if (isRateLimited) {
+        let waitSeconds;
+        if (retryAfterSec !== null) {
+          waitSeconds = retryAfterSec;
+        } else if (resetTime && /^\d+$/.test(resetTime)) {
+          waitSeconds = Math.max(1, parseInt(resetTime, 10) - Math.floor(Date.now() / 1000));
+        } else {
+          waitSeconds = 60;
+        }
+        throw new Error(`Rate limited by GitHub — try again in ${waitSeconds} seconds`);
       }
 
-      throw new Error('Forbidden: Check your access token');
+      // A 403 that is NOT a rate limit is a genuine permission failure. Still
+      // never blame the token for the rate limit; this honest copy describes
+      // what's actually happening (private repo, missing scope, etc.).
+      throw new Error('Forbidden — this repository may be private or require a token with appropriate scope');
     }
 
     if (response.status === 404) {
@@ -139,10 +269,16 @@ const fetchWithRetry = async (url, options = {}) => {
 
     return result;
   } catch (error) {
+    // AbortErrors come from `withManagedRequest` cancelling a superseded
+    // request. Never retry — the caller intentionally cancelled.
+    if (error && (error.name === 'AbortError' || signal?.aborted)) {
+      throw error;
+    }
     const isHttpError = error.message.startsWith('HTTP ') ||
       error.message.includes('Rate limit') ||
       error.message.includes('Resource not found') ||
-      error.message.includes('Forbidden');
+      error.message.includes('Forbidden') ||
+      error.message.includes('try again in');
 
     if (retries > 0 && !isHttpError) {
       const jitter = Math.random() * 100;

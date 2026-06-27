@@ -635,7 +635,7 @@ describe('API', () => {
         }
       });
 
-      await expect(searchRepositories('test')).rejects.toThrow('Rate limit exceeded');
+      await expect(searchRepositories('test')).rejects.toThrow(/Rate limited/);
     });
 
     it('should handle 404 error', async () => {
@@ -677,7 +677,8 @@ describe('API', () => {
         }
       });
 
-      await expect(searchRepositories('test')).rejects.toThrow('Forbidden');
+      // Honest wording — never the misleading "check your token" copy.
+      await expect(searchRepositories('test')).rejects.toThrow(/Forbidden/);
     });
   });
 
