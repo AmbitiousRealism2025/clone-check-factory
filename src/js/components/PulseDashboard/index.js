@@ -37,6 +37,7 @@ export {
   calculateFreshnessScore
 } from './visualizations.js';
 export { createMetricCard, createCompactMetricCard, createMetricCardSkeleton } from './MetricCard.js';
+export { mapPulseData } from './mapPulseData.js';
 
 /**
  * Dashboard status configuration

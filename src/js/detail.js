@@ -21,7 +21,7 @@ import { createRepoNotes } from './components/RepoNotes.js';
 import { createCommitHeatmap } from './components/CommitHeatmap.js';
 import { createHealthScore } from './components/HealthScore.js';
 import { createRepositoryDNA } from './components/RepositoryDNA/index.js';
-import { createPulseDashboard, createPulseDashboardSkeleton, createPulseDashboardError } from './components/PulseDashboard/index.js';
+import { createPulseDashboard, createPulseDashboardSkeleton, createPulseDashboardError, mapPulseData } from './components/PulseDashboard/index.js';
 import { calculateAllMetrics } from './components/PulseDashboard/PulseCalculator.js';
 
 initTheme();
@@ -85,20 +85,10 @@ const loadPulseDashboard = async () => {
     // Calculate all metrics from the raw data
     const calculatedMetrics = calculateAllMetrics(pulseData);
 
-    // Transform calculator output to dashboard format
-    // Map: velocity → commitVelocity, momentum → communityHealth,
-    //      issues → issueHealth, prs → prHealth,
-    //      busFactor → busFactor, freshness → releaseFreshness
-    const dashboardData = {
-      commitVelocity: calculatedMetrics.metrics.velocity,
-      issueHealth: calculatedMetrics.metrics.issues,
-      prHealth: calculatedMetrics.metrics.prs,
-      busFactor: calculatedMetrics.metrics.busFactor,
-      releaseFreshness: calculatedMetrics.metrics.freshness,
-      communityHealth: calculatedMetrics.metrics.momentum,
-      overallStatus: calculatedMetrics.overall.status,
-      repoName: currentRepo.full_name
-    };
+    // Transform calculator output to dashboard format via the SINGLE shared
+    // mapPulseData() (F1.3 — kills the divergent detail.js/pulse.js mappings
+    // and the bus-factor "Unknown 0%" rendering bug, VC-DATA-04).
+    const dashboardData = mapPulseData(calculatedMetrics, { repoName: currentRepo.full_name });
 
     // Render the dashboard with calculated metrics
     container.innerHTML = '';

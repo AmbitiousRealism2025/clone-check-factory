@@ -364,6 +364,7 @@ export const DEFAULTS = {
     ...DEFAULT_METRIC,
     value: 1,
     riskLevel: 'critical',
+    distribution: [],
     label: 'Contributor data unavailable'
   },
   freshness: {

@@ -383,7 +383,30 @@ export const getContributorStats = async (owner, repo, retryOnce = true) => {
 };
 
 /**
- * Fetches issues with created/closed timestamps for a repository
+ * Strips pull requests out of a GitHub `/issues` payload.
+ *
+ * The REST `/issues` endpoint returns BOTH issues AND PRs — PRs surface there
+ * carrying a `pull_request` field. Every issue count / temperature signal we
+ * derive from this endpoint MUST exclude those PRs, otherwise PR traffic
+ * silently inflates issue counts (VC-DATA-02). Pure function so it is reusable
+ * and unit-testable in isolation.
+ *
+ * @param {Array} items - Raw array from `/issues`.
+ * @returns {Array} A new array containing only items WITHOUT a `pull_request` field.
+ */
+export const filterIssuesOnly = (items) => {
+  if (!Array.isArray(items)) return [];
+  return items.filter((item) => !(item && typeof item === 'object' && item.pull_request !== undefined));
+};
+
+/**
+ * Fetches issues with created/closed timestamps for a repository.
+ *
+ * The GitHub `/issues` endpoint returns BOTH issues AND PRs (PRs carry a
+ * `pull_request` field). PRs are filtered out here at the API layer so every
+ * downstream consumer — issue temperature, pulse metrics, verdict signals —
+ * sees real issues only (VC-DATA-02).
+ *
  * @param {string} owner - Repository owner's username
  * @param {string} repo - Repository name
  * @param {Object} [params={}] - Optional query parameters to override defaults
@@ -403,7 +426,9 @@ export const getIssueTimeline = async (owner, repo, params = {}) => {
     ...params
   });
   const url = `${API_BASE}/repos/${owner}/${repo}/issues?${query}`;
-  return fetchWithRetry(url);
+  const response = await fetchWithRetry(url);
+  // VC-DATA-02: strip PRs at the source so no downstream count can ever see them.
+  return { ...response, data: filterIssuesOnly(response.data) };
 };
 
 /**

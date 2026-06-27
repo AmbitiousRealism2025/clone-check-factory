@@ -10,7 +10,7 @@ import {
   getRequiredElement
 } from './common.js';
 import { initErrorBoundary } from './errorBoundary.js';
-import { createPulseDashboard } from './components/PulseDashboard/index.js';
+import { createPulseDashboard, mapPulseData } from './components/PulseDashboard/index.js';
 import { calculateAllMetrics } from './components/PulseDashboard/PulseCalculator.js';
 
 initTheme();
@@ -188,41 +188,10 @@ const loadPulseDashboard = async () => {
     // Calculate all metrics
     const calculatedMetrics = calculateAllMetrics(metricsInput);
 
-    // Prepare dashboard data structure
-    const dashboardData = {
-      repoName: currentRepo.full_name,
-      overallStatus: calculatedMetrics.overall.status,
-      commitVelocity: {
-        value: calculatedMetrics.metrics.velocity.value,
-        trend: calculatedMetrics.metrics.velocity.trend,
-        status: calculatedMetrics.metrics.velocity.status,
-        sparklineData: calculatedMetrics.metrics.velocity.sparklineData
-      },
-      issueHealth: {
-        temperature: calculatedMetrics.metrics.issues.temperature,
-        trend: calculatedMetrics.metrics.issues.trend,
-        status: calculatedMetrics.metrics.issues.status
-      },
-      prHealth: {
-        funnel: calculatedMetrics.metrics.prs.funnel,
-        status: calculatedMetrics.metrics.prs.status
-      },
-      busFactor: {
-        distribution: calculatedMetrics.metrics.busFactor.sparklineData,
-        status: calculatedMetrics.metrics.busFactor.status
-      },
-      releaseFreshness: {
-        score: calculatedMetrics.metrics.freshness.value,
-        daysSincePush: calculatedMetrics.metrics.freshness.daysSincePush,
-        status: calculatedMetrics.metrics.freshness.status
-      },
-      communityHealth: {
-        value: calculatedMetrics.metrics.momentum.value,
-        trend: calculatedMetrics.metrics.momentum.trend,
-        status: calculatedMetrics.metrics.momentum.status,
-        sparklineData: calculatedMetrics.metrics.momentum.sparklineData
-      }
-    };
+    // Transform calculator output to dashboard format via the SINGLE shared
+    // mapPulseData() (F1.3 — kills the divergent detail.js/pulse.js mappings
+    // and the bus-factor "Unknown 0%" rendering bug, VC-DATA-04).
+    const dashboardData = mapPulseData(calculatedMetrics, { repoName: currentRepo.full_name });
 
     // Create and render the dashboard
     const dashboard = createPulseDashboard(dashboardData);

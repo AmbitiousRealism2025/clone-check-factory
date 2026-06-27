@@ -635,11 +635,17 @@ export function calculateIssueTemperature(issues) {
     return getDefaultMetric('issues');
   }
 
+  // VC-DATA-02 (defense in depth): the GitHub /issues endpoint also returns
+  // PRs (items carrying a `pull_request` field). PRs must never inflate issue
+  // counts. The API layer strips them too, but we defend here as well so the
+  // calculator stays correct even when called directly with raw payloads.
+  const issuesOnly = issues.filter(issue => !(issue && issue.pull_request !== undefined));
+
   // Filter to issues within the analysis window (last 30 days)
   const windowDays = ISSUES.WINDOW_DAYS;
   const windowCutoff = Date.now() - (windowDays * TIME_MS.DAY);
 
-  const recentIssues = issues.filter(issue => {
+  const recentIssues = issuesOnly.filter(issue => {
     if (!issue?.created_at) return false;
     const createdDate = safeParseDate(issue.created_at);
     return createdDate && createdDate.getTime() >= windowCutoff;
@@ -1167,6 +1173,11 @@ export function calculateBusFactor(contributors) {
   // Top 10 contributors' relative contribution percentages
   const sparklineData = generateContributorSparkline(sorted, totalCommits);
 
+  // VC-DATA-04: real {login, percentage} rows for the contributor bars.
+  // `createContributorBars` expects exactly this shape; passing the numeric
+  // sparklineData (or omitting distribution) is what renders "Unknown 0%".
+  const distribution = generateContributorDistribution(sorted, totalCommits);
+
   // Calculate trend (not applicable for bus factor - it's a snapshot metric)
   // We use 0 as trend since we can't compare historical contributor data
   const trend = 0;
@@ -1191,6 +1202,7 @@ export function calculateBusFactor(contributors) {
     trend,
     direction,
     sparklineData,
+    distribution,
     status,
     label,
     riskLevel,
@@ -1202,6 +1214,36 @@ export function calculateBusFactor(contributors) {
     topContributor: sorted[0]?.author?.login || 'unknown',
     score: Math.round(score)
   };
+}
+
+/**
+ * Generate the real `{login, percentage}` rows the contributor bars render.
+ *
+ * `createContributorBars` (visualizations.js) consumes exactly this shape.
+ * The numeric `sparklineData` is NOT a substitute — passing bare numbers
+ * destructures to `{login: 'Unknown', percentage: 0}` (the "Unknown 0%"
+ * rendering bug). We expose up to the top 10 contributors with real logins
+ * and rounded percentages.
+ *
+ * @param {Object[]} sortedContributors - Contributors sorted by commits (desc)
+ * @param {number} totalCommits - Total commits across all contributors
+ * @returns {Array<{login: string, percentage: number}>} Real contributor rows
+ */
+function generateContributorDistribution(sortedContributors, totalCommits) {
+  if (!Array.isArray(sortedContributors) || sortedContributors.length === 0 || !totalCommits) {
+    return [];
+  }
+  const maxRows = 10;
+  const count = Math.min(sortedContributors.length, maxRows);
+  const rows = [];
+  for (let i = 0; i < count; i++) {
+    const c = sortedContributors[i];
+    const login = c?.author?.login;
+    if (!login || typeof c.total !== 'number' || c.total <= 0) continue;
+    const percentage = (c.total / totalCommits) * 100;
+    rows.push({ login, percentage: Math.round(percentage * 10) / 10 });
+  }
+  return rows;
 }
 
 /**
