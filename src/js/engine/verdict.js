@@ -20,7 +20,15 @@
  *   VC-ENGINE-05 — Gameable signals (slop, AI-ready) worded as likelihoods.
  *   VC-ENGINE-06 — Dated `heuristic check, not a security audit` disclaimer
  *                  on every verdict shape.
+ *
+ * The gameable-signal sub-classifiers (slop, AI-readiness, stack-fit) live in
+ * their own pure sub-modules and are invoked from here so the verdict remains
+ * a thin composition layer.
  */
+
+import { detectSlop } from './slopDetector.js';
+import { matchStack } from './stackMatcher.js';
+import { checkAiReady } from './aiReadyChecker.js';
 
 /* -------------------------------------------------------------------------
  * Four-state enum (frozen — the only verdict values that exist).
@@ -155,51 +163,32 @@ function classifyBusFactor(contributors) {
 }
 
 /**
- * Slop classifier. Uses likelihood wording only ("looks …", never "is slop").
+ * Slop classifier — DELEGATED to the pure `slopDetector` sub-module (F1.4).
  *
- * Signals considered:
- *   - single-commit (initial-commit-only) history
- *   - no test suite detected
- *   - note: a squashed-history repo with real content is NOT flagged on
- *     commit count alone (false-positive guard for F1.4 / VC-SLOP-01).
+ * Kept as a thin adapter so the verdict composition layer continues to speak
+ * the internal `{ state, label }` signal shape used by the other classifiers.
+ *
+ * The sub-module implements the squashed-history false-positive guard
+ * (VC-SLOP-01): a single-commit repo with otherwise real content is NOT
+ * flagged on commit count alone.
  *
  * @param {Array|undefined} commits
  * @param {object|null} contents
+ * @param {object|null} meta
+ * @param {string|undefined} asOf
  */
-function classifySlop(commits, contents) {
-  if (!Array.isArray(commits) || commits.length === 0) {
-    return { state: 'unknown', label: 'slop: unknown (no commit history)' };
-  }
-
-  const reasons = [];
-  if (commits.length === 1) {
-    reasons.push('looks like initial-commit-only history');
-  }
-  if (contents && contents.hasTests === false) {
-    reasons.push('looks like it has no test suite');
-  }
-
-  if (reasons.length === 0) {
-    return { state: 'clean', label: 'slop: no signals detected' };
-  }
-  // Join likelihood clauses; never assert as fact.
-  return { state: 'flagged', label: `slop: ${reasons.join('; ')}` };
+function classifySlop(commits, contents, meta, asOf) {
+  const result = detectSlop({ commits, contents, meta, asOf });
+  return { state: result.state, label: result.label };
 }
 
 /**
- * AI-readiness classifier. Likelihood wording only.
+ * AI-readiness classifier — DELEGATED to the pure `aiReadyChecker` sub-module
+ * (F1.4). Returns the likelihood-worded label string only.
  * @param {object|null} contents
  */
 function classifyAiReady(contents) {
-  if (!contents) {
-    return 'AI-readiness: unknown (no contents data)';
-  }
-  const files = Array.isArray(contents.aiRulesFiles) ? contents.aiRulesFiles : [];
-  if (files.length > 0) {
-    const list = files.slice(0, 3).join(', ');
-    return `AI-readiness: has ${list} — likely agent-friendly`;
-  }
-  return 'AI-readiness: no AI-rules files detected — agent may need more context';
+  return checkAiReady({ contents }).label;
 }
 
 /* -------------------------------------------------------------------------
@@ -247,14 +236,25 @@ export function verdict(repoData) {
   // the function is total and byte-identical for `verdict(null)` and
   // `verdict(undefined)`.
   const data = repoData || {};
-  const { asOf, meta, commits, contributors, contents } = data;
+  const { asOf, meta, commits, contributors, contents, savedStack } = data;
 
   // --- classify the four headline signals ---------------------------------
   const maintenance = classifyMaintenance(meta, asOf);
   const license = classifyLicense(meta);
   const busFactor = classifyBusFactor(contributors);
-  const slop = classifySlop(commits, contents);
+  const slop = classifySlop(commits, contents, meta, asOf);
   const signals = { maintenance, license, busFactor, slop };
+
+  // --- derive the non-headline differentiators (pure sub-modules) ---------
+  // stack-fit is computed against the caller-supplied savedStack (the user's
+  // first-run 3-chip preference). When absent, detected chips are still
+  // surfaced with empty match fields.
+  const stackFit = matchStack({
+    packageJson: contents && contents.packageJson,
+    configFiles: contents && contents.configFiles,
+    fileTree: contents && contents.fileTree,
+    savedStack: Array.isArray(savedStack) ? savedStack : []
+  });
 
   // --- resolve the verdict state ------------------------------------------
   const anyUnknown = Object.values(signals).some((s) => s.state === 'unknown');
@@ -283,6 +283,7 @@ export function verdict(repoData) {
   return {
     state,
     whatThisIs: buildWhatThisIs(meta, state),
+    stackFit,
     trustInWords: buildTrustInWords(signals),
     aiReady: classifyAiReady(contents),
     slop: slop.label,

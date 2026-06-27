@@ -270,11 +270,27 @@ describe('VC-ENGINE-04 — four states & no bare score', () => {
  * VC-ENGINE-05 — gameable signals worded as likelihoods
  * ========================================================================= */
 describe('VC-ENGINE-05 — likelihood wording for slop & AI-ready', () => {
-  it('flags initial-commit-only history using "looks" framing', () => {
-    const repo = greenRepo({ commits: [{ sha: 'only', date: '2025-06-10', author: { login: 'alice' } }] });
+  it('flags initial-commit-only history using "looks" framing (with corroboration)', () => {
+    // Per VC-SLOP-01, the squashed-history guard requires corroboration
+    // before the single-commit signal contributes a slop reason. Pair the
+    // single commit with a no-tests signal so this is genuinely slop.
+    const repo = greenRepo({
+      commits: [{ sha: 'only', date: '2025-06-10', author: { login: 'alice' } }],
+      contents: { ...greenRepo().contents, hasTests: false }
+    });
     const v = verdict(repo);
     expect(v.slop).toMatch(/looks/i);
     expect(v.slop.toLowerCase()).not.toContain('is slop');
+  });
+
+  it('does NOT flag a single-commit repo with otherwise real content (squashed guard)', () => {
+    // 1 commit + has tests + recent activity → squashed-history guard kicks
+    // in; this is NOT flagged as slop (VC-SLOP-01 false-positive guard).
+    const repo = greenRepo({
+      commits: [{ sha: 'only', date: '2025-06-10', author: { login: 'alice' } }]
+    });
+    const v = verdict(repo);
+    expect(v.slop).toMatch(/no signals detected/i);
   });
 
   it('flags missing tests using likelihood framing', () => {
