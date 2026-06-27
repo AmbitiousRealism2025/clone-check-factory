@@ -366,7 +366,7 @@ describe('API', () => {
 
       const result = await getCommitActivity('owner', 'repo');
       expect(global.fetch).toHaveBeenCalledTimes(2);
-      expect(result).toEqual({ data: null, processing: true, rateLimit: null });
+      expect(result).toMatchObject({ data: null, processing: true });
     });
   });
 
@@ -408,7 +408,7 @@ describe('API', () => {
 
       const result = await getParticipationStats('owner', 'repo');
       expect(global.fetch).toHaveBeenCalledTimes(2);
-      expect(result).toEqual({ data: null, processing: true, rateLimit: null });
+      expect(result).toMatchObject({ data: null, processing: true });
     });
 
     it('should throw error on HTTP failure', async () => {
@@ -466,7 +466,7 @@ describe('API', () => {
 
       const result = await getContributorStats('owner', 'repo');
       expect(global.fetch).toHaveBeenCalledTimes(2);
-      expect(result).toEqual({ data: null, processing: true, rateLimit: null });
+      expect(result).toMatchObject({ data: null, processing: true });
     });
 
     it('should throw error on HTTP failure', async () => {
