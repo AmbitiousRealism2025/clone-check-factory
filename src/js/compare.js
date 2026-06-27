@@ -1,10 +1,8 @@
 import { getRepository } from './api.js';
-import { initTheme, toggleTheme, formatNumber, formatDate, showToast, getUrlParam, setUrlParams, initMobileNav, getRequiredElement } from './common.js';
-import { initErrorBoundary } from './errorBoundary.js';
+import { formatNumber, formatDate, showToast, getUrlParam, getRequiredElement } from './common.js';
+import { createPageController, pushUrlParams, onPopState } from './shell.js';
 
-initTheme();
-initMobileNav();
-initErrorBoundary();
+createPageController({ page: 'compare' });
 
 const repo1Input = getRequiredElement('repo-1');
 const repo2Input = getRequiredElement('repo-2');
@@ -16,7 +14,6 @@ const compareResults = getRequiredElement('compare-results');
 const emptyState = getRequiredElement('empty-state');
 const compareHeader = getRequiredElement('compare-header');
 const compareBody = getRequiredElement('compare-body');
-const themeToggle = getRequiredElement('theme-toggle');
 
 const metrics = [
   { key: 'stargazers_count', label: 'Stars', format: formatNumber },
@@ -99,7 +96,7 @@ const renderComparison = (repos) => {
   showState('results');
 };
 
-const runComparison = async () => {
+const runComparison = async ({ updateUrl = true } = {}) => {
   const inputs = [repo1Input, repo2Input, repo3Input, repo4Input];
   const repoNames = inputs
     .map(input => input.value.trim())
@@ -110,7 +107,11 @@ const runComparison = async () => {
     return;
   }
   
-  setUrlParams({ repos: repoNames.join(',') });
+  // Only push a new history entry for user-initiated comparisons. On popstate
+  // restoration the URL already carries the repos, so we skip (VC-SHELL-01).
+  if (updateUrl) {
+    pushUrlParams({ repos: repoNames.join(',') });
+  }
   showState('loading');
   
   try {
@@ -144,7 +145,7 @@ const runComparison = async () => {
   }
 };
 
-const loadFromUrl = () => {
+const loadFromUrl = ({ updateUrl = true } = {}) => {
   const reposParam = getUrlParam('repos');
   if (reposParam) {
     const repos = reposParam.split(',');
@@ -154,12 +155,12 @@ const loadFromUrl = () => {
         inputs[idx].value = repo;
       }
     });
-    runComparison();
+    runComparison({ updateUrl });
   }
 };
 
-compareBtn.addEventListener('click', runComparison);
-themeToggle.addEventListener('click', toggleTheme);
+compareBtn.addEventListener('click', () => runComparison());
+// Theme toggle is bound by createPageController().
 
 [repo1Input, repo2Input, repo3Input, repo4Input].forEach(input => {
   input.addEventListener('keypress', (e) => {
@@ -167,4 +168,8 @@ themeToggle.addEventListener('click', toggleTheme);
   });
 });
 
-loadFromUrl();
+// Deep-linkable state (VC-SHELL-01): restore comparison on Back/Forward.
+// On popstate the URL is already correct, so restore without re-pushing.
+onPopState(() => loadFromUrl({ updateUrl: false }));
+
+loadFromUrl({ updateUrl: false });

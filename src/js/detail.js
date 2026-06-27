@@ -1,7 +1,5 @@
 import { getRepository, getRepositoryReadme, getRepositoryLanguages, getRepositoryEvents, getCommitActivity, fetchPulseData } from './api.js';
 import {
-  initTheme,
-  toggleTheme,
   Storage,
   formatNumber,
   formatDate,
@@ -11,11 +9,10 @@ import {
   Icons,
   sanitizeUrl,
   escapeHtml,
-  initMobileNav,
   getRequiredElement,
   renderMarkdown
 } from './common.js';
-import { initErrorBoundary } from './errorBoundary.js';
+import { createPageController } from './shell.js';
 import { createCloneCommands } from './components/CloneCommands.js';
 import { createRepoNotes } from './components/RepoNotes.js';
 import { createCommitHeatmap } from './components/CommitHeatmap.js';
@@ -24,16 +21,13 @@ import { createRepositoryDNA } from './components/RepositoryDNA/index.js';
 import { createPulseDashboard, createPulseDashboardSkeleton, createPulseDashboardError, mapPulseData } from './components/PulseDashboard/index.js';
 import { calculateAllMetrics } from './components/PulseDashboard/PulseCalculator.js';
 
-initTheme();
-initMobileNav();
-initErrorBoundary();
+createPageController({ page: 'detail' });
 
 const loadingState = getRequiredElement('loading-state');
 const detailContent = getRequiredElement('detail-content');
 const errorState = getRequiredElement('error-state');
 const errorMessage = getRequiredElement('error-message');
 const retryBtn = getRequiredElement('retry-btn');
-const themeToggle = getRequiredElement('theme-toggle');
 
 const repoName = getRequiredElement('repo-name');
 const repoDescription = getRequiredElement('repo-description');
@@ -364,7 +358,7 @@ favoriteBtn.addEventListener('click', () => {
   updateFavoriteButton();
 });
 
-themeToggle.addEventListener('click', toggleTheme);
+// Theme toggle is bound by createPageController().
 
 retryBtn.addEventListener('click', () => {
   loadRepository();

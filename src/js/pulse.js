@@ -1,27 +1,21 @@
 import { getRepository, fetchPulseData } from './api.js';
 import {
-  initTheme,
-  toggleTheme,
   getUrlParam,
   updateRateLimitDisplay,
   formatNumber,
   escapeHtml,
-  initMobileNav,
   getRequiredElement
 } from './common.js';
-import { initErrorBoundary } from './errorBoundary.js';
+import { createPageController } from './shell.js';
 import { createPulseDashboard, mapPulseData } from './components/PulseDashboard/index.js';
 import { calculateAllMetrics } from './components/PulseDashboard/PulseCalculator.js';
 
-initTheme();
-initMobileNav();
-initErrorBoundary();
+createPageController({ page: 'pulse' });
 
 const loadingState = getRequiredElement('loading-state');
 const pulseContent = getRequiredElement('pulse-content');
 const errorState = getRequiredElement('error-state');
 const errorMessage = getRequiredElement('error-message');
-const themeToggle = getRequiredElement('theme-toggle');
 
 const repoName = getRequiredElement('repo-name');
 const repoDescription = getRequiredElement('repo-description');
@@ -210,6 +204,6 @@ const loadPulseDashboard = async () => {
   }
 };
 
-themeToggle.addEventListener('click', toggleTheme);
+// Theme toggle is bound by createPageController().
 
 loadPulseDashboard();

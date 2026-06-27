@@ -1,5 +1,5 @@
-import { initTheme, toggleTheme, Storage, formatNumber, formatDate, showToast, escapeHtml, initMobileNav, getRequiredElement } from './common.js';
-import { initErrorBoundary } from './errorBoundary.js';
+import { Storage, formatNumber, formatDate, showToast, escapeHtml, getRequiredElement } from './common.js';
+import { createPageController } from './shell.js';
 
 // Import validation constants
 const MAX_IMPORT_SIZE = 10 * 1024; // 10KB max for base64 payload
@@ -33,9 +33,7 @@ const validateImportData = (data) => {
   );
 };
 
-initTheme();
-initMobileNav();
-initErrorBoundary();
+createPageController({ page: 'collections' });
 
 const collectionsList = getRequiredElement('collections-list');
 const emptyState = getRequiredElement('empty-state');
@@ -47,7 +45,6 @@ const modalCancel = getRequiredElement('modal-cancel');
 const modalSave = getRequiredElement('modal-save');
 const collectionNameInput = getRequiredElement('collection-name');
 const collectionDescInput = getRequiredElement('collection-description');
-const themeToggle = getRequiredElement('theme-toggle');
 
 let editingCollectionId = null;
 
@@ -265,7 +262,7 @@ modalSave.addEventListener('click', saveCollection);
 modal.addEventListener('click', (e) => {
   if (e.target === modal) closeModal();
 });
-themeToggle.addEventListener('click', toggleTheme);
+// Theme toggle is bound by createPageController().
 
 checkImportHash();
 renderCollections();

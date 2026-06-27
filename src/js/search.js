@@ -1,17 +1,13 @@
 import { searchRepositories } from './api.js';
 import {
-  initTheme,
-  toggleTheme,
   Storage,
   formatNumber,
   debounce,
   getUrlParam,
-  setUrlParams,
   updateRateLimitDisplay,
-  initMobileNav,
   getRequiredElement
 } from './common.js';
-import { initErrorBoundary } from './errorBoundary.js';
+import { createPageController, pushUrlParams, onPopState } from './shell.js';
 import { 
   renderRepoGrid, 
   renderPagination, 
@@ -22,9 +18,7 @@ import {
   initCollectionPickerCloseHandler
 } from './components/RepoGrid.js';
 
-initTheme();
-initMobileNav();
-initErrorBoundary();
+createPageController({ page: 'search', showSettings: true });
 
 const searchInput = getRequiredElement('search-input');
 const searchBtn = getRequiredElement('search-btn');
@@ -39,7 +33,6 @@ const loadingState = getRequiredElement('loading-state');
 const errorState = getRequiredElement('error-state');
 const errorMessage = getRequiredElement('error-message');
 const pagination = getRequiredElement('pagination');
-const themeToggle = getRequiredElement('theme-toggle');
 const settingsBtn = getRequiredElement('settings-btn');
 const settingsModal = getRequiredElement('settings-modal');
 const settingsClose = getRequiredElement('settings-close');
@@ -74,7 +67,7 @@ const showState = (state) => {
   }
 };
 
-const performSearch = async (page = 1) => {
+const performSearch = async (page = 1, { updateUrl = true } = {}) => {
   const query = searchInput.value.trim();
   if (!query) {
     showState('empty');
@@ -84,13 +77,18 @@ const performSearch = async (page = 1) => {
   currentQuery = query;
   currentPage = page;
   
-  setUrlParams({
-    q: query,
-    lang: languageFilter.value,
-    stars: starsFilter.value,
-    sort: sortFilter.value,
-    page: page > 1 ? page : null
-  });
+  // Only push a new history entry for user-initiated searches. On popstate
+  // restoration (Back/Forward) the URL is already correct, so we skip —
+  // otherwise we'd re-push and break the Back stack (VC-SHELL-01).
+  if (updateUrl) {
+    pushUrlParams({
+      q: query,
+      lang: languageFilter.value,
+      stars: starsFilter.value,
+      sort: sortFilter.value,
+      page: page > 1 ? page : null
+    });
+  }
   
   showState('loading');
   
@@ -118,7 +116,7 @@ const performSearch = async (page = 1) => {
   }
 };
 
-const initFromUrl = () => {
+const initFromUrl = ({ updateUrl = true } = {}) => {
   const query = getUrlParam('q');
   const lang = getUrlParam('lang');
   const stars = getUrlParam('stars');
@@ -131,7 +129,7 @@ const initFromUrl = () => {
   if (sort) sortFilter.value = sort;
   
   if (query) {
-    performSearch(parseInt(page) || 1);
+    performSearch(parseInt(page) || 1, { updateUrl });
   }
 };
 
@@ -154,7 +152,7 @@ pagination.addEventListener('click', (e) => handlePaginationClick(e, performSear
 retryBtn?.addEventListener('click', () => performSearch(currentPage));
 initCollectionPickerCloseHandler();
 
-themeToggle.addEventListener('click', toggleTheme);
+// Theme toggle is bound by createPageController(); nothing to do here.
 
 settingsBtn.addEventListener('click', () => {
   githubTokenInput.value = Storage.getToken() || '';
@@ -182,4 +180,8 @@ clearTokenBtn.addEventListener('click', () => {
   githubTokenInput.value = '';
 });
 
-initFromUrl();
+// Deep-linkable state (VC-SHELL-01): restoring URL params on Back/Forward.
+// On popstate the URL is already correct, so we restore without re-pushing.
+onPopState(() => initFromUrl({ updateUrl: false }));
+
+initFromUrl({ updateUrl: false });

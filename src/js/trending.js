@@ -1,13 +1,10 @@
 import { getTrendingRepositories } from './api.js';
 import {
-  initTheme,
-  toggleTheme,
   formatNumber,
   updateRateLimitDisplay,
-  initMobileNav,
   getRequiredElement
 } from './common.js';
-import { initErrorBoundary } from './errorBoundary.js';
+import { createPageController } from './shell.js';
 import { 
   renderRepoGrid, 
   renderPagination, 
@@ -19,9 +16,7 @@ import {
 } from './components/RepoGrid.js';
 import { MAX_SEARCH_RESULTS, TRENDING_CATEGORIES } from './constants.js';
 
-initTheme();
-initMobileNav();
-initErrorBoundary();
+createPageController({ page: 'trending' });
 
 const languageFilter = getRequiredElement('language-filter');
 const repoGrid = getRequiredElement('repo-grid');
@@ -31,7 +26,6 @@ const loadingState = getRequiredElement('loading-state');
 const errorState = getRequiredElement('error-state');
 const errorMessage = getRequiredElement('error-message');
 const pagination = getRequiredElement('pagination');
-const themeToggle = getRequiredElement('theme-toggle');
 const retryBtn = document.getElementById('retry-btn'); // Optional - may not exist
 const categoryFilter = getRequiredElement('category-filter');
 const emptyState = getRequiredElement('empty-state');
@@ -174,7 +168,7 @@ repoGrid.addEventListener('click', (e) => {
 repoGrid.addEventListener('keydown', handleCollectionKeydown);
 pagination.addEventListener('click', (e) => handlePaginationClick(e, loadTrending));
 retryBtn?.addEventListener('click', () => loadTrending(currentPage));
-themeToggle.addEventListener('click', toggleTheme);
+// Theme toggle is bound by createPageController().
 initCollectionPickerCloseHandler();
 
 loadTrending();

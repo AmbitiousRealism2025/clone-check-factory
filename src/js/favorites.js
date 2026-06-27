@@ -1,11 +1,8 @@
 import {
-  initTheme,
-  toggleTheme,
   Storage,
-  initMobileNav,
   getRequiredElement
 } from './common.js';
-import { initErrorBoundary } from './errorBoundary.js';
+import { createPageController } from './shell.js';
 import { 
   renderRepoGrid, 
   handleFavoriteRemove,
@@ -14,15 +11,12 @@ import {
   initCollectionPickerCloseHandler
 } from './components/RepoGrid.js';
 
-initTheme();
-initMobileNav();
-initErrorBoundary();
+createPageController({ page: 'favorites' });
 
 const repoGrid = getRequiredElement('repo-grid');
 const favoritesSection = getRequiredElement('favorites-section');
 const resultsCount = getRequiredElement('results-count');
 const emptyState = getRequiredElement('empty-state');
-const themeToggle = getRequiredElement('theme-toggle');
 
 const renderFavorites = () => {
   const favorites = Storage.getFavorites();
@@ -52,7 +46,7 @@ repoGrid.addEventListener('click', (e) => {
   handleCollectionClick(e);
 });
 repoGrid.addEventListener('keydown', handleCollectionKeydown);
-themeToggle.addEventListener('click', toggleTheme);
+// Theme toggle is bound by createPageController().
 initCollectionPickerCloseHandler();
 
 renderFavorites();
