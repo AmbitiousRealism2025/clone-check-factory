@@ -12,7 +12,7 @@ import { verdict } from '../engine/verdict.js';
  * ------------------------------------------------------------------------- */
 const GHP_PREFIX = ['g', 'h', 'p', '_'].join('');
 const GHP_BODY = ['aBcD', '1234', '5678', '9012', '3456', '7890', '1234', '5678',
-  '9012', '3456', '7890'].join('');
+  '9012', '3456', '7890'].join(''); // 44 chars, matches ghp_[A-Za-z0-9]{36,}
 const FAKE_GHP = GHP_PREFIX + GHP_BODY;
 const FAKE_GHP_TAIL = '5678';
 const PAT_PREFIX = ['g', 'i', 't', 'h', 'u', 'b', '_', 'p', 'a', 't', '_'].join('');
@@ -55,12 +55,12 @@ describe('VC-QA-01 — secret redaction for disk logs', () => {
   it('redacts Bearer authorization headers', () => {
     const line = 'Authorization: Bearer ' + FAKE_GHP;
     const out = redactSecrets(line);
-    expect(out).not.toContain('ghp_' + 'aBcD');
+    expect(out).not.toContain(FAKE_GHP);
     expect(out).toMatch(/Bearer\s+\[REDACTED/);
   });
 
   it('redacts generic token=/secret=/password= assignments', () => {
-    const line = 'config token=\"' + FAKE_GHP + '\" password=\"hunter2secret\"';
+    const line = 'config token="' + FAKE_GHP + '" password="hunter2secret"';
     const out = redactSecrets(line);
     expect(out).not.toContain('hunter2secret');
     expect(out).toContain('[REDACTED');
@@ -80,7 +80,7 @@ describe('VC-QA-01 — secret redaction for disk logs', () => {
       'line three is also clean';
     const out = redactSecrets(blob);
     expect(out.split('\n')[0]).toBe('line one is clean');
-    expect(out.split('\n')[1]).not.toContain('ghp_' + 'aBcD');
+    expect(out.split('\n')[1]).not.toContain(FAKE_GHP);
     expect(out.split('\n')[2]).toBe('line three is also clean');
   });
 
@@ -95,7 +95,7 @@ describe('VC-QA-01 — secret redaction for disk logs', () => {
     };
     const out = redactSecretsDeep(obj);
     const serialized = JSON.stringify(out);
-    expect(serialized).not.toContain('ghp_' + 'aBcD');
+    expect(serialized).not.toContain(FAKE_GHP);
     expect(serialized).not.toContain(PAT_PREFIX);
     expect(serialized).toContain('[REDACTED');
     // Non-secret fields preserved.

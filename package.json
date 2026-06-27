@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Professional GitHub Repository Explorer",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
